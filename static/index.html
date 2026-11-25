@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Four agents, one transaction</title>
+<style>
+:root{color-scheme:light;--bg:#F7F7F5;--ink:#1B1B1A;--soft:#6E6E69;--line:#D9D9D4;--mark:#1B1B1A}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#161615;--ink:#EDEDEA;--soft:#9A9A94;--line:#34342F;--mark:#EDEDEA}}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.45}
+main{max-width:1040px;margin:0 auto;padding:40px 24px 64px}
+h1{font-size:clamp(26px,4vw,34px);font-weight:600;margin:0 0 32px}
+h2{font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);margin:0 0 12px}
+.grid{display:flex;flex-wrap:wrap;gap:48px}.col{flex:1 1 340px}
+.presets{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+label{display:block;font-size:15px;margin:16px 0 6px;color:var(--soft)}
+input[type=number]{width:100%;box-sizing:border-box;padding:10px 12px;font-size:18px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink)}
+.chk{display:flex;gap:10px;align-items:center;margin:12px 0}.chk label{margin:0;color:var(--ink);font-size:17px}
+button{font:inherit;font-size:15px;cursor:pointer;border:1px solid var(--line);border-radius:4px;padding:8px 14px;background:transparent;color:var(--ink)}
+button:hover{border-color:var(--mark)}
+button.go{background:var(--mark);color:var(--bg);border-color:var(--mark);margin-top:22px;padding:11px 20px}
+.st{display:flex;gap:20px;padding:14px 0 14px 16px;border-top:1px solid var(--line);border-left:3px solid transparent;opacity:.3;transition:opacity .4s,border-color .4s}
+.st.on{opacity:1;border-left-color:var(--mark)}.st b{width:76px;flex:none;font-weight:600}.st span{font-size:17px}
+.pend{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line);font-size:16px}
+ol{font-size:15px;color:var(--soft);padding-left:20px;margin:0}
+</style></head>
+<body><main>
+<h1>Four agents, one transaction</h1>
+<div class="grid">
+<section class="col">
+<h2>Incoming payment</h2>
+<div class="presets"><button data-p="normal">Everyday purchase</button><button data-p="risky">Late-night transfer</button><button data-p="supplier">New supplier</button></div>
+<label for="amt">Amount (KES)</label><input id="amt" type="number" min="1" value="1200">
+<label for="hr">Hour of day (0 to 23)</label><input id="hr" type="number" min="0" max="23" value="11">
+<div class="chk"><input id="dev" type="checkbox"><label for="dev">New device</label></div>
+<div class="chk"><input id="pay" type="checkbox"><label for="pay">First-time payee</label></div>
+<button class="go" id="go">Send through the agents</button>
+<h2 style="margin-top:32px">Waiting for the owner</h2><div id="pending"></div>
+</section>
+<section class="col" aria-live="polite">
+<h2>The agents</h2>
+<div class="st"><b>Intake</b><span></span></div><div class="st"><b>Risk</b><span></span></div>
+<div class="st"><b>Action</b><span></span></div><div class="st"><b>Human</b><span></span></div>
+<h2 style="margin-top:32px">Audit log</h2><ol id="log" reversed></ol>
+</section></div></main>
+<script>
+var $=function(i){return document.getElementById(i)},rows=document.querySelectorAll(".st"),T=[];
+var P={normal:[1200,11,0,0],risky:[85000,2,1,0],supplier:[18500,16,0,1]};
+async function api(path,opt){var r=await fetch(path,opt);if(!r.ok)throw new Error(await r.text());return r.json()}
+function post(path,body){return api(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})}
+document.querySelectorAll("[data-p]").forEach(function(b){b.onclick=function(){var p=P[b.dataset.p];
+ $("amt").value=p[0];$("hr").value=p[1];$("dev").checked=!!p[2];$("pay").checked=!!p[3];run()}});
+$("go").onclick=run;
+async function run(){
+ T.forEach(clearTimeout);T=[];rows.forEach(function(r){r.classList.remove("on")});
+ var res=await post("/transactions",{amount:+$("amt").value,hour:+$("hr").value,new_device:$("dev").checked,new_payee:$("pay").checked});
+ res.steps.forEach(function(s,k){T.push(setTimeout(function(){rows[k].querySelector("span").textContent=s.message;rows[k].classList.add("on");
+  if(k==3)refresh()},900*k))});
+}
+async function refresh(){
+ var pend=await api("/transactions?status=pending");
+ $("pending").innerHTML="";
+ pend.forEach(function(t){var d=document.createElement("div");d.className="pend";
+  d.innerHTML="<span>KES "+t.amount.toLocaleString()+" · "+t.reasons.join(", ")+"</span><span></span>";
+  ["approve","decline"].forEach(function(x){var b=document.createElement("button");b.textContent=x[0].toUpperCase()+x.slice(1);
+   b.onclick=async function(){await post("/transactions/"+t.id+"/decision",{decision:x});refresh()};d.lastChild.appendChild(b)});
+  $("pending").appendChild(d)});
+ var ev=await api("/audit?limit=12");
+ $("log").innerHTML="";
+ ev.slice().reverse().forEach(function(e){var li=document.createElement("li");li.textContent="#"+e.tx_id+" · "+e.agent+" · "+e.message;$("log").prepend(li)});
+}
+refresh();
+</script></body></html>
